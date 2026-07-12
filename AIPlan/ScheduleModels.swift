@@ -138,6 +138,9 @@ final class ScheduleEvent: Identifiable {
     var timezoneIdentifier: String
     var isCompleted: Bool
     var createdAt: Date
+    var calendarEventIdentifier: String?
+    var calendarItemIdentifier: String?
+    var alarmIdentifier: String?
 
     init(
         id: String = UUID().uuidString,
@@ -166,6 +169,9 @@ final class ScheduleEvent: Identifiable {
         self.timezoneIdentifier = timezoneIdentifier
         self.isCompleted = isCompleted
         self.createdAt = createdAt
+        self.calendarEventIdentifier = nil
+        self.calendarItemIdentifier = nil
+        self.alarmIdentifier = nil
     }
 
     convenience init(draft: DraftEvent, reminderPolicy: ReminderPolicy) {

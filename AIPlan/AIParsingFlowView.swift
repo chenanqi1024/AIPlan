@@ -10,6 +10,7 @@ import SwiftUI
 
 struct AIParsingFlowView: View {
     let input: String
+    let systemSyncService: ScheduleSystemSyncService
     var onCancel: () -> Void
     var onSaved: () -> Void
     var client: ScheduleAssistantClient = .live()
@@ -18,6 +19,7 @@ struct AIParsingFlowView: View {
     @Query private var events: [ScheduleEvent]
     @State private var state: ParsingState = .loading
     @State private var saveError: String?
+    @State private var isSaving = false
 
     var body: some View {
         ZStack {
@@ -30,6 +32,7 @@ struct AIParsingFlowView: View {
                 ConfirmEventView(
                     response: response,
                     draft: draft,
+                    isSaving: isSaving,
                     onCancel: onCancel,
                     onSave: save
                 )
@@ -64,13 +67,30 @@ struct AIParsingFlowView: View {
     }
 
     private func save(draft: DraftEvent, reminderPolicy: ReminderPolicy) {
+        guard !isSaving else {
+            return
+        }
+
+        Task {
+            await saveSystemAndLocalRecords(draft: draft, reminderPolicy: reminderPolicy)
+        }
+    }
+
+    private func saveSystemAndLocalRecords(draft: DraftEvent, reminderPolicy: ReminderPolicy) async {
+        isSaving = true
+        defer {
+            isSaving = false
+        }
+
         let event = ScheduleEvent(draft: draft, reminderPolicy: reminderPolicy)
-        modelContext.insert(event)
 
         do {
+            try await systemSyncService.createSystemRecords(for: event)
+            modelContext.insert(event)
             try modelContext.save()
             onSaved()
         } catch {
+            try? await systemSyncService.deleteSystemRecords(for: event)
             saveError = error.localizedDescription
         }
     }
@@ -443,6 +463,7 @@ private struct ParsingStepRow: View {
 struct ConfirmEventView: View {
     let response: IntentResponse
     let draft: DraftEvent
+    let isSaving: Bool
     var onCancel: () -> Void
     var onSave: (DraftEvent, ReminderPolicy) -> Void
 
@@ -457,11 +478,13 @@ struct ConfirmEventView: View {
     init(
         response: IntentResponse,
         draft: DraftEvent,
+        isSaving: Bool = false,
         onCancel: @escaping () -> Void,
         onSave: @escaping (DraftEvent, ReminderPolicy) -> Void
     ) {
         self.response = response
         self.draft = draft
+        self.isSaving = isSaving
         self.onCancel = onCancel
         self.onSave = onSave
         _title = State(initialValue: draft.title)
@@ -644,7 +667,7 @@ struct ConfirmEventView: View {
             }
 
             Button(action: save) {
-                Text(draft.kind == .alarm ? "保存日程和闹钟" : "保存日程")
+                Text(isSaving ? "保存中..." : (draft.kind == .alarm ? "保存日程和闹钟" : "保存日程"))
                     .font(.system(size: 13, weight: .heavy))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -652,7 +675,7 @@ struct ConfirmEventView: View {
                     .frame(maxWidth: .infinity, minHeight: 42)
                     .background(PlanTheme.alarmOrange, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(isSaving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(10)
         .background(PlanTheme.surfaceApp.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))

@@ -5,6 +5,8 @@
 //  Created by Codex on 2026/7/13.
 //
 
+import EventKit
+import SwiftData
 import SwiftUI
 
 enum AppTab: Hashable {
@@ -35,10 +37,15 @@ enum CaptureRoute: Hashable {
 }
 
 struct AppRootView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var events: [ScheduleEvent]
+
     @State private var selectedTab: AppTab = .capture
     @State private var capturePath: [CaptureRoute] = []
     @State private var todayPath: [String] = []
     @State private var speechCaptureService = SpeechCaptureService()
+    @State private var systemSyncService = ScheduleSystemSyncService()
+    @State private var isReconcilingCalendarChanges = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -51,6 +58,7 @@ struct AppRootView: View {
                     case .parsing(let input):
                         AIParsingFlowView(
                             input: input,
+                            systemSyncService: systemSyncService,
                             onCancel: {
                                 capturePath.removeAll()
                             },
@@ -68,7 +76,7 @@ struct AppRootView: View {
             .tag(AppTab.capture)
 
             NavigationStack(path: $todayPath) {
-                UpcomingView()
+                UpcomingView(systemSyncService: systemSyncService)
             }
             .tabItem {
                 Label(AppTab.today.title, systemImage: AppTab.today.symbolName)
@@ -79,6 +87,28 @@ struct AppRootView: View {
         .preferredColorScheme(.dark)
         .task {
             await speechCaptureService.requestAuthorizationIfNeeded()
+            await systemSyncService.requestRequiredPermissions()
+            await reconcileExternalCalendarDeletions()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
+            Task {
+                await reconcileExternalCalendarDeletions()
+            }
+        }
+    }
+
+    private func reconcileExternalCalendarDeletions() async {
+        guard !isReconcilingCalendarChanges else {
+            return
+        }
+        isReconcilingCalendarChanges = true
+        defer {
+            isReconcilingCalendarChanges = false
+        }
+
+        try? await systemSyncService.reconcileExternalCalendarDeletions(
+            events: events,
+            modelContext: modelContext
+        )
     }
 }

@@ -274,6 +274,11 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AIPlan/Info.plist;
+				INFOPLIST_KEY_NSAlarmKitUsageDescription = "用于在明确的闹钟语义下创建系统强提醒闹钟。";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "用于把日程同步到系统日历，并在系统日历删除后同步更新 App。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于通过语音录入你的日程安排。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "用于把你的语音转成文字后提交给 AI 解析。";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -306,6 +311,11 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AIPlan/Info.plist;
+				INFOPLIST_KEY_NSAlarmKitUsageDescription = "用于在明确的闹钟语义下创建系统强提醒闹钟。";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "用于把日程同步到系统日历，并在系统日历删除后同步更新 App。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于通过语音录入你的日程安排。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "用于把你的语音转成文字后提交给 AI 解析。";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

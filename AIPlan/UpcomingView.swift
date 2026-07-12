@@ -9,11 +9,15 @@ import SwiftData
 import SwiftUI
 
 struct UpcomingView: View {
+    let systemSyncService: ScheduleSystemSyncService
+
     @Environment(\.modelContext) private var modelContext
     @Query private var events: [ScheduleEvent]
 
     @State private var showsPast = false
     @State private var showsCompleted = false
+    @State private var pendingDeleteEventID: String?
+    @State private var operationError: String?
 
     private var calendar: Calendar {
         .current
@@ -82,6 +86,20 @@ struct UpcomingView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .alert("操作失败", isPresented: Binding(
+            get: { operationError != nil },
+            set: { isPresented in
+                if !isPresented {
+                    operationError = nil
+                }
+            }
+        )) {
+            Button("好") {
+                operationError = nil
+            }
+        } message: {
+            Text(operationError ?? "")
+        }
     }
 
     private var header: some View {
@@ -255,8 +273,21 @@ struct UpcomingView: View {
     }
 
     private func delete(_ event: ScheduleEvent) {
-        modelContext.delete(event)
-        try? modelContext.save()
+        guard pendingDeleteEventID == nil else {
+            return
+        }
+
+        pendingDeleteEventID = event.id
+        Task {
+            do {
+                try await systemSyncService.deleteSystemRecords(for: event)
+                modelContext.delete(event)
+                try modelContext.save()
+            } catch {
+                operationError = error.localizedDescription
+            }
+            pendingDeleteEventID = nil
+        }
     }
 }
 
