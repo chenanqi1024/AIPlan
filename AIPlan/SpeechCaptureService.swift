@@ -43,8 +43,6 @@ final class SpeechCaptureService {
     private var isInputTapInstalled = false
     private var isStartingRecording = false
 
-    private static let simulatorFallbackTranscript = "明早 8 点叫我起床"
-
     var state: CaptureState = .idle
     var transcript = ""
     var hasSpeechAuthorization = SFSpeechRecognizer.authorizationStatus() == .authorized
@@ -196,7 +194,7 @@ final class SpeechCaptureService {
                     if let error {
                         self.finishAfterRecognition(error: error, mode: mode)
                     } else if result?.isFinal == true {
-                        self.stopRecording(commitAudio: true)
+                        self.finishLiveRecognition()
                     }
                 }
             }
@@ -236,10 +234,45 @@ final class SpeechCaptureService {
             isInputTapInstalled = false
         }
 
+        let hasActiveRecognition = recognitionTask != nil
+
         if commitAudio {
             audioBufferRecognitionRequest?.endAudio()
+            audioBufferRecognitionRequest = nil
+            recordingMode = nil
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+            if updateState {
+                state = hasActiveRecognition ? .transcribing : .idle
+            }
         } else {
             recognitionTask?.cancel()
+
+            audioBufferRecognitionRequest = nil
+            recognitionTask = nil
+            recognitionSessionID = nil
+            recordingMode = nil
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+            if updateState {
+                switch state {
+                case .preparing, .recording, .transcribing:
+                    state = .idle
+                default:
+                    break
+                }
+            }
+        }
+        return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func finishLiveRecognition() {
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        if isInputTapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            isInputTapInstalled = false
         }
 
         audioBufferRecognitionRequest = nil
@@ -247,16 +280,7 @@ final class SpeechCaptureService {
         recognitionSessionID = nil
         recordingMode = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-
-        if updateState {
-            switch state {
-            case .preparing, .recording:
-                state = .idle
-            default:
-                break
-            }
-        }
-        return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        state = .idle
     }
 
     private func startFileBackedRecording() throws {
@@ -338,14 +362,6 @@ final class SpeechCaptureService {
             transcribeRecordedAudio(at: fileURL, mode: .systemDefault)
             return
         }
-
-        #if targetEnvironment(simulator)
-        if isRecognizerInitializationError(error) {
-            transcript = Self.simulatorFallbackTranscript
-            finishFileRecognition(fileURL: fileURL)
-            return
-        }
-        #endif
 
         let message = speechRecognitionMessage(for: error)
         finishFileRecognition(fileURL: fileURL)

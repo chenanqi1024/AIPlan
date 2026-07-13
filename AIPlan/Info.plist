@@ -4,14 +4,6 @@
 <dict>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>用于在明确的闹钟语义下创建系统强提醒闹钟。</string>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>用于把日程同步到系统日历，并在系统日历删除后同步更新 App。</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>用于通过语音录入你的日程安排。</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>用于把你的语音转成文字后提交给 AI 解析。</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
