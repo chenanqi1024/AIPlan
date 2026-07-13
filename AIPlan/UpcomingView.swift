@@ -11,6 +11,7 @@ import SwiftUI
 struct UpcomingView: View {
     let systemSyncService: ScheduleSystemSyncService
 
+    @Environment(\.openURL) private var openURL
     @Environment(\.modelContext) private var modelContext
     @Query private var events: [ScheduleEvent]
 
@@ -47,6 +48,25 @@ struct UpcomingView: View {
         }
     }
 
+    private var laterEvents: [ScheduleEvent] {
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        let tomorrowStart = calendar.startOfDay(for: tomorrow)
+        return sortedEvents.filter {
+            !$0.isCompleted && calendar.startOfDay(for: $0.startDate) > tomorrowStart
+        }
+    }
+
+    private var laterEventGroups: [ScheduleDayGroup] {
+        laterEvents.reduce(into: []) { groups, event in
+            let day = calendar.startOfDay(for: event.startDate)
+            if let lastIndex = groups.indices.last, calendar.isDate(groups[lastIndex].date, inSameDayAs: day) {
+                groups[lastIndex].events.append(event)
+            } else {
+                groups.append(ScheduleDayGroup(date: day, events: [event]))
+            }
+        }
+    }
+
     private var pastEvents: [ScheduleEvent] {
         let today = calendar.startOfDay(for: Date())
         return sortedEvents.filter {
@@ -77,6 +97,7 @@ struct UpcomingView: View {
                         todaySection
                         pastDisclosure
                         tomorrowSection
+                        laterSection
                         completedDisclosure
                     }
                 }
@@ -108,7 +129,7 @@ struct UpcomingView: View {
                 .font(.system(size: 12, weight: .heavy))
                 .foregroundStyle(PlanTheme.textSecondary)
 
-            Text("今日日程")
+            Text("全部日程")
                 .font(.system(size: 32, weight: .heavy))
                 .foregroundStyle(PlanTheme.textPrimary)
 
@@ -181,6 +202,7 @@ struct UpcomingView: View {
                         TimelineEventRow(
                             event: event,
                             isLast: index == todayEvents.count - 1,
+                            onOpenCalendar: openSystemCalendar,
                             onToggleComplete: toggleComplete,
                             onDelete: delete
                         )
@@ -204,6 +226,7 @@ struct UpcomingView: View {
                         TimelineEventRow(
                             event: event,
                             isLast: index == pastEvents.count - 1,
+                            onOpenCalendar: openSystemCalendar,
                             onToggleComplete: toggleComplete,
                             onDelete: delete
                         )
@@ -235,9 +258,66 @@ struct UpcomingView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .planCard()
             } else {
-                VStack(spacing: 8) {
-                    ForEach(tomorrowEvents.prefix(3)) { event in
-                        TomorrowEventRow(event: event)
+                VStack(spacing: 0) {
+                    ForEach(Array(tomorrowEvents.enumerated()), id: \.element.id) { index, event in
+                        TimelineEventRow(
+                            event: event,
+                            isLast: index == tomorrowEvents.count - 1,
+                            onOpenCalendar: openSystemCalendar,
+                            onToggleComplete: toggleComplete,
+                            onDelete: delete
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var laterSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("未来日程")
+                    .font(.system(size: 18, weight: .heavy))
+                    .foregroundStyle(PlanTheme.textPrimary)
+                Text("\(laterEvents.count) 项")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(PlanTheme.textSecondary)
+            }
+
+            if laterEventGroups.isEmpty {
+                Text("暂无更多日程")
+                    .font(.system(size: 14, weight: .heavy))
+                    .foregroundStyle(PlanTheme.textMuted)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .planCard()
+            } else {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(laterEventGroups) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Text(PlanDateFormatter.fullDate(group.date))
+                                    .font(.system(size: 14, weight: .heavy))
+                                    .foregroundStyle(PlanTheme.textPrimary)
+                                Text(PlanDateFormatter.weekday(group.date))
+                                    .font(.system(size: 13, weight: .heavy))
+                                    .foregroundStyle(PlanTheme.textSecondary)
+                                Text("\(group.events.count) 项")
+                                    .font(.system(size: 13, weight: .heavy))
+                                    .foregroundStyle(PlanTheme.textSecondary)
+                            }
+
+                            VStack(spacing: 0) {
+                                ForEach(Array(group.events.enumerated()), id: \.element.id) { index, event in
+                                    TimelineEventRow(
+                                        event: event,
+                                        isLast: index == group.events.count - 1,
+                                        onOpenCalendar: openSystemCalendar,
+                                        onToggleComplete: toggleComplete,
+                                        onDelete: delete
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -258,6 +338,7 @@ struct UpcomingView: View {
                         TimelineEventRow(
                             event: event,
                             isLast: index == completedEvents.count - 1,
+                            onOpenCalendar: openSystemCalendar,
                             onToggleComplete: toggleComplete,
                             onDelete: delete
                         )
@@ -265,6 +346,25 @@ struct UpcomingView: View {
                 }
             }
         }
+    }
+
+    private func openSystemCalendar(_ event: ScheduleEvent) {
+        guard let url = calendarURL(for: event.startDate) else {
+            operationError = "无法打开系统日历"
+            return
+        }
+
+        openURL(url) { accepted in
+            if !accepted {
+                operationError = "无法打开系统日历"
+            }
+        }
+    }
+
+    private func calendarURL(for date: Date) -> URL? {
+        let targetDate = calendar.startOfDay(for: date)
+        let seconds = Int(targetDate.timeIntervalSinceReferenceDate)
+        return URL(string: "calshow:\(seconds)")
     }
 
     private func toggleComplete(_ event: ScheduleEvent) {
@@ -288,6 +388,15 @@ struct UpcomingView: View {
             }
             pendingDeleteEventID = nil
         }
+    }
+}
+
+private struct ScheduleDayGroup: Identifiable {
+    let date: Date
+    var events: [ScheduleEvent]
+
+    var id: Date {
+        date
     }
 }
 
@@ -341,6 +450,7 @@ private struct DisclosureHeader: View {
 private struct TimelineEventRow: View {
     let event: ScheduleEvent
     let isLast: Bool
+    var onOpenCalendar: (ScheduleEvent) -> Void
     var onToggleComplete: (ScheduleEvent) -> Void
     var onDelete: (ScheduleEvent) -> Void
 
@@ -377,10 +487,16 @@ private struct TimelineEventRow: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(event.isCompleted ? "标记为未完成" : "标记为完成")
 
-                Image(systemName: event.eventKind.symbolName)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(accent)
-                    .planIconBox(fill: accent.opacity(0.14))
+                Button {
+                    onOpenCalendar(event)
+                } label: {
+                    Image(systemName: event.eventKind.symbolName)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(accent)
+                        .planIconBox(fill: accent.opacity(0.14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("在系统日历中打开 \(PlanDateFormatter.fullDate(event.startDate))")
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 7) {
@@ -414,35 +530,5 @@ private struct TimelineEventRow: View {
             .padding(.horizontal, 12)
             .planCard(fill: PlanTheme.surfaceCard.opacity(0.62), stroke: accent.opacity(0.27), cornerRadius: 18)
         }
-    }
-}
-
-private struct TomorrowEventRow: View {
-    let event: ScheduleEvent
-
-    private var accent: Color {
-        event.eventKind == .alarm ? PlanTheme.alarmOrange : PlanTheme.calendarBlue
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(PlanDateFormatter.shortTime(event.taskTime))
-                .font(.system(size: 12, weight: .heavy))
-                .foregroundStyle(accent)
-                .frame(width: 48, alignment: .leading)
-
-            Image(systemName: event.eventKind.symbolName)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(accent)
-
-            Text(event.title)
-                .font(.system(size: 14, weight: .heavy))
-                .foregroundStyle(PlanTheme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .planCard(fill: PlanTheme.surfaceCard.opacity(0.62), stroke: accent.opacity(0.27), cornerRadius: 18)
     }
 }
