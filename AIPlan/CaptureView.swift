@@ -12,7 +12,8 @@ struct CaptureView: View {
     var onSubmit: (String) -> Void
 
     @State private var draftText = ""
-    @State private var isPressingMic = false
+    @State private var isMicPulsing = false
+    @State private var lastAppliedTranscript = ""
     @FocusState private var isTextFocused: Bool
 
     private var canSubmit: Bool {
@@ -58,40 +59,18 @@ struct CaptureView: View {
 
     private var voiceCard: some View {
         VStack(spacing: 18) {
-            ZStack {
-                Circle()
-                    .stroke(PlanTheme.calendarBlue.opacity(isPressingMic ? 0.46 : 0.20), lineWidth: 2)
-                    .frame(width: 188, height: 188)
-                    .scaleEffect(isPressingMic ? 1.06 : 1)
-
-                Circle()
-                    .fill(PlanTheme.calendarBlue.opacity(isPressingMic ? 0.20 : 0.10))
-                    .frame(width: 148, height: 148)
-
-                Circle()
-                    .fill(PlanTheme.calendarBlue)
-                    .frame(width: 108, height: 108)
-                    .shadow(color: PlanTheme.calendarBlue.opacity(0.35), radius: isPressingMic ? 28 : 16)
-
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 38, weight: .bold))
-                    .foregroundStyle(.white)
+            Button {
+                toggleMicRecording()
+            } label: {
+                micButtonArtwork
             }
-            .frame(width: 204, height: 204)
-            .contentShape(Circle())
-            .onLongPressGesture(
-                minimumDuration: 0.25,
-                maximumDistance: 80,
-                pressing: { pressing in
-                    handleMicPress(pressing)
-                },
-                perform: {}
-            )
-            .accessibilityLabel("按住说出安排")
-            .accessibilityHint("松开后把识别结果填入输入框")
+            .buttonStyle(.plain)
+            .disabled(speechCaptureService.isTranscribing)
+            .accessibilityLabel(speechCaptureService.isRecording ? "结束语音录入" : "开始语音录入")
+            .accessibilityHint("再次点击后把识别结果填入输入框")
 
             VStack(spacing: 7) {
-                Text("按住说出安排")
+                Text(speechCaptureService.isRecording ? "正在语音输入" : "点击说出安排")
                     .font(.system(size: 21, weight: .heavy))
                     .foregroundStyle(PlanTheme.textPrimary)
 
@@ -106,7 +85,62 @@ struct CaptureView: View {
         .frame(height: 360)
         .padding(.horizontal, 22)
         .padding(.vertical, 26)
-        .planCard(stroke: PlanTheme.calendarBlue.opacity(0.34), cornerRadius: 28)
+        .planCard(stroke: micAccent.opacity(speechCaptureService.isRecording ? 0.58 : 0.34), cornerRadius: 28)
+        .onChange(of: speechCaptureService.isRecording) { _, isRecording in
+            if isRecording {
+                isMicPulsing = false
+                withAnimation(.easeInOut(duration: 0.82).repeatForever(autoreverses: true)) {
+                    isMicPulsing = true
+                }
+            } else {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isMicPulsing = false
+                }
+            }
+        }
+        .onChange(of: speechCaptureService.transcript) { _, transcript in
+            applyTranscriptIfReady(transcript)
+        }
+        .onChange(of: speechCaptureService.state) { _, _ in
+            applyTranscriptIfReady(speechCaptureService.transcript)
+        }
+    }
+
+    private var micButtonArtwork: some View {
+        ZStack {
+            if speechCaptureService.isRecording {
+                Circle()
+                    .stroke(micAccent.opacity(0.28), lineWidth: 2)
+                    .frame(width: 202, height: 202)
+                    .scaleEffect(isMicPulsing ? 1.12 : 0.96)
+
+                Circle()
+                    .stroke(micAccent.opacity(0.38), lineWidth: 2)
+                    .frame(width: 176, height: 176)
+                    .scaleEffect(isMicPulsing ? 1.08 : 0.98)
+            }
+
+            Circle()
+                .stroke(micAccent.opacity(speechCaptureService.isRecording ? 0.68 : 0.20), lineWidth: 2)
+                .frame(width: 188, height: 188)
+                .scaleEffect(speechCaptureService.isRecording ? 1.04 : 1)
+
+            Circle()
+                .fill(micAccent.opacity(speechCaptureService.isRecording ? 0.22 : 0.10))
+                .frame(width: 148, height: 148)
+
+            Circle()
+                .fill(micAccent)
+                .frame(width: 108, height: 108)
+                .shadow(color: micAccent.opacity(0.40), radius: speechCaptureService.isRecording ? 30 : 16)
+                .scaleEffect(speechCaptureService.isRecording && isMicPulsing ? 1.07 : 1)
+
+            Image(systemName: speechCaptureService.isRecording ? "stop.fill" : "mic.fill")
+                .font(.system(size: speechCaptureService.isRecording ? 34 : 38, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 204, height: 204)
+        .contentShape(Circle())
     }
 
     private var composer: some View {
@@ -163,28 +197,58 @@ struct CaptureView: View {
         case .failed, .unavailable:
             PlanTheme.alertRed
         case .recording:
+            PlanTheme.alertRed
+        case .transcribing:
             PlanTheme.calendarBlue
         default:
             PlanTheme.textSecondary
         }
     }
 
-    private func handleMicPress(_ pressing: Bool) {
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
-            isPressingMic = pressing
-        }
+    private var micAccent: Color {
+        speechCaptureService.isRecording ? PlanTheme.alertRed : PlanTheme.calendarBlue
+    }
 
-        if pressing {
-            isTextFocused = false
-            speechCaptureService.startRecording()
+    private func toggleMicRecording() {
+        guard !speechCaptureService.isTranscribing else {
             return
         }
 
+        if speechCaptureService.isRecording {
+            commitTranscriptFromRecording()
+            return
+        }
+
+        Task {
+            isTextFocused = false
+            await speechCaptureService.startRecording()
+        }
+    }
+
+    private func commitTranscriptFromRecording() {
         let transcript = speechCaptureService.stopRecording()
         guard !transcript.isEmpty else {
             return
         }
         draftText = transcript
+        lastAppliedTranscript = transcript
+        isTextFocused = true
+    }
+
+    private func applyTranscriptIfReady(_ transcript: String) {
+        let cleanedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedTranscript.isEmpty else {
+            return
+        }
+        guard !speechCaptureService.isRecording, !speechCaptureService.isTranscribing else {
+            return
+        }
+        guard cleanedTranscript != lastAppliedTranscript else {
+            return
+        }
+
+        draftText = cleanedTranscript
+        lastAppliedTranscript = cleanedTranscript
         isTextFocused = true
     }
 }
